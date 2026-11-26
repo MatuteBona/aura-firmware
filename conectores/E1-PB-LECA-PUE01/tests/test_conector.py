@@ -1,6 +1,6 @@
 """Tests del conector. Correr desde la raíz del repo:
 
-    python3 -m unittest discover -s conectores/E1-PB-LECA-LCK01/tests
+    python3 -m unittest discover -s conectores/E1-PB-LECA-PUE01/tests
 """
 import json
 import sys
@@ -24,30 +24,30 @@ class Conector(unittest.TestCase):
         self.ctx = ContextoDePrueba(self.manifiesto)
 
     def test_guarda_puerta_y_cerradura(self):
-        r = procesar(self.conector, self.ctx, msg({"puerta_1": 1, "solenoide_1": 1}))
+        r = procesar(self.conector, self.ctx, msg({"puerta": 1, "cerradura": 1}))
         self.assertEqual(r.resultado, "persistido")
-        self.assertEqual([v for _, v in self.ctx.serie("puerta_1")], [1])
-        self.assertEqual([v for _, v in self.ctx.serie("solenoide_1")], [1])
+        self.assertEqual([v for _, v in self.ctx.serie("puerta")], [1])
+        self.assertEqual([v for _, v in self.ctx.serie("cerradura")], [1])
 
     def test_un_valor_fuera_de_rango_no_se_guarda(self):
-        r = procesar(self.conector, self.ctx, msg({"puerta_1": 2, "solenoide_1": 0}))
+        r = procesar(self.conector, self.ctx, msg({"puerta": 2, "cerradura": 0}))
         self.assertEqual(r.resultado, "persistido")
-        self.assertEqual(self.ctx.serie("puerta_1"), [])
-        self.assertEqual([v for _, v in self.ctx.serie("solenoide_1")], [0])
+        self.assertEqual(self.ctx.serie("puerta"), [])
+        self.assertEqual([v for _, v in self.ctx.serie("cerradura")], [0])
 
     def test_un_valor_intermedio_no_es_un_estado(self):
-        r = procesar(self.conector, self.ctx, msg({"puerta_1": 0.5, "solenoide_1": 0}))
+        r = procesar(self.conector, self.ctx, msg({"puerta": 0.5, "cerradura": 0}))
         self.assertEqual(r.resultado, "persistido")
-        self.assertEqual(self.ctx.serie("puerta_1"), [])
+        self.assertEqual(self.ctx.serie("puerta"), [])
 
     def test_sin_ningun_estado_valido_se_descarta(self):
-        r = procesar(self.conector, self.ctx, msg({"puerta_1": 0.5, "solenoide_1": 7}))
+        r = procesar(self.conector, self.ctx, msg({"puerta": 0.5, "cerradura": 7}))
         self.assertEqual(r.resultado, "descartado")
 
     def test_un_campo_no_declarado_no_se_guarda(self):
-        r = procesar(self.conector, self.ctx, msg({"puerta_1": 0, "puerta_9": 1}))
+        r = procesar(self.conector, self.ctx, msg({"puerta": 0, "puerta_2": 1}))
         self.assertEqual(r.resultado, "persistido")
-        self.assertEqual([v for _, v in self.ctx.serie("puerta_1")], [0])
+        self.assertEqual([v for _, v in self.ctx.serie("puerta")], [0])
 
     def test_una_apertura_completa(self):
         """Pulso, puerta abierta, pulso cortado, puerta cerrada: se guardan los 5 estados."""
@@ -59,8 +59,8 @@ class Conector(unittest.TestCase):
                              Mensaje(hw_id="mac-000000000000", values=d["values"],
                                      ingest_id=d["ingest_id"], ts=ts))
                 self.assertEqual(r.resultado, "persistido")
-        self.assertEqual([v for _, v in self.ctx.serie("puerta_1")], [0, 0, 1, 1, 0])
-        self.assertEqual([v for _, v in self.ctx.serie("solenoide_1")], [0, 1, 1, 0, 0])
+        self.assertEqual([v for _, v in self.ctx.serie("puerta")], [0, 0, 1, 1, 0])
+        self.assertEqual([v for _, v in self.ctx.serie("cerradura")], [0, 1, 1, 0, 0])
 
 
 if __name__ == "__main__":

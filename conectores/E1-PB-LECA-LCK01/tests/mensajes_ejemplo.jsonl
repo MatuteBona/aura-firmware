@@ -1,0 +1,5 @@
+{"values":{"puerta_1":0,"solenoide_1":0},"ingest_id":"lck-001","ts":"2026-11-06T15:00:00Z"}
+{"values":{"puerta_1":0,"solenoide_1":1},"ingest_id":"lck-002","ts":"2026-11-06T15:00:10Z"}
+{"values":{"puerta_1":1,"solenoide_1":1},"ingest_id":"lck-003","ts":"2026-11-06T15:00:14Z"}
+{"values":{"puerta_1":1,"solenoide_1":0},"ingest_id":"lck-004","ts":"2026-11-06T15:00:25Z"}
+{"values":{"puerta_1":0,"solenoide_1":0},"ingest_id":"lck-005","ts":"2026-11-06T15:00:40Z"}

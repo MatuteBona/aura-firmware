@@ -1,4 +1,4 @@
-# ESP32-C3 SuperMini (4 MB) - Locker del pañol (E1-PB-LECA-PUE01)
+# ESP32-C3 SuperMini (4 MB) - Gabinete de lockers del pañol (E1-PB-LECA-LCK01)
 CONFIG_IDF_TARGET="esp32c3"
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 # Tabla propia: dos lugares OTA + partición "cola" (respaldo de mediciones sin confirmar tras un corte)

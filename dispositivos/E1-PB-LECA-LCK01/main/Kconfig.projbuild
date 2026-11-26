@@ -1,11 +1,11 @@
-menu "Locker del panol (E1-PB-LECA-PUE01)"
+menu "Gabinete de lockers del panol (E1-PB-LECA-LCK01)"
     config LOCKER_ABRIR_REMOTO
         bool "Aceptar la orden remota 'abrir' desde AURA"
         default n
         help
             Apagada por defecto (ADR-009, decision 8): 'abrir' se rechaza con abrir_deshabilitado.
             Mientras la mesh no tenga la etapa 2 de seguridad, un comando falso, o una orden que
-            quedo en el broker y se ejecuta horas despues, podria abrir el locker. Se enciende
+            quedo en el broker y se ejecuta horas despues, podria abrir un locker. Se enciende
             SOLO en el banco para las pruebas; una imagen con la opcion encendida exige la firma
             de la catedra (ADR-008) para llegar a una placa instalada.
 

@@ -1,38 +1,43 @@
 /*
  * ============================================================================================
- *  E1-PB-LECA-PUE01 — hoja de la mesh de AURA para un locker del pañol (LabECA)
- *  Tipo de firmware aura-lockers (ESP-IDF 6.1, ESP32-C3 SuperMini). Una placa por locker.
+ *  E1-PB-LECA-LCK01 — hoja de la mesh de AURA para el gabinete de lockers del pañol (LabECA)
+ *  Tipo de firmware aura-lockers (ESP-IDF 6.1, ESP32-C3 SuperMini). Una placa, 4 lockers.
  * ============================================================================================
  *
- *  Un locker es una puerta con cerradura por pulso y sensor de apertura (ADR-009). Sobre la
+ *  Cada locker es una puerta con cerradura por pulso y sensor de apertura (ADR-009). Sobre la
  *  biblioteca nodo_mesh, que resuelve la malla, el aula, la cola con confirmación, la hora, la
- *  OTA y la firma. Lo propio del locker:
+ *  OTA y la firma. Lo propio del gabinete (contrato v4.6, propuesto en este mismo PR):
  *
  *   QUÉ MIDE   en cada cambio, y una completa cada intervalo_s:
- *                {"puerta":0,"cerradura":0}
- *              puerta    1 = abierta (microswitch libre o cable cortado), 0 = cerrada
- *              cerradura 1 = energizada (se puede abrir), 0 = trabada
+ *                {"puerta_1":0,…,"puerta_4":0,"cerradura_1":0,…,"cerradura_4":0}
+ *              puerta_N    1 = abierto (microswitch libre o cable cortado), 0 = cerrado
+ *              cerradura_N 1 = energizada (se puede abrir), 0 = trabada
  *
- *   COMANDOS   (contrato v4.5, §3.3, "Comandos de la puerta con llavero")
- *              abrir   {"vence": <segundos Unix>}. DESHABILITADO AL COMPILAR (ADR-009, decisión 8):
- *                      con CONFIG_LOCKER_ABRIR_REMOTO apagada (por defecto) se rechaza con
- *                      abrir_deshabilitado. Encendida (solo en el banco): rechaza sin_vencimiento,
- *                      sin_hora_valida, orden_vencida, vencimiento_muy_lejano y, con un pulso en
- *                      curso o el límite por minuto alcanzado, ocupada.
+ *   COMANDOS   abrir   {"puerta": <1 a 4>, "vence": <segundos Unix>}. DESHABILITADO AL COMPILAR
+ *                      (ADR-009, decisión 8): con CONFIG_LOCKER_ABRIR_REMOTO apagada (por defecto)
+ *                      se rechaza con abrir_deshabilitado. Encendida (solo en el banco): rechaza
+ *                      puerta_invalida, sin_vencimiento, sin_hora_valida, orden_vencida,
+ *                      vencimiento_muy_lejano y, con CUALQUIER cerradura energizada o el límite
+ *                      por minuto de esa cerradura alcanzado, ocupada. Un pulso a la vez en todo
+ *                      el gabinete: la fuente es una, de 5 A, y cada cerradura consume ~2,2 A.
  *              estado  {} de solo lectura: manda el reporte y una medición en el momento.
  *              Una orden del botón del concentrador (local) solo puede ser "estado".
  *
  *   SET_CONFIG intervalo_s (5 a 3600; 30) · pulso_ms (500 a 5000; 3000) · aviso_s (0 = sin aviso,
- *              o 5 a 600; 120). Todo o nada, enteros, guardado en NVS.
+ *              o 5 a 600; 120). Todo o nada, enteros, guardado en NVS. Valen para los 4 lockers.
  *
- *   ALERTAS    (contrato v4.5, §3.5) intrusion (critical) · puerta_abierta (warning) ·
- *              puerta_cerrada (info) · limite_pulsos (warning).
+ *   ALERTAS    (contrato v4.5, §3.5, con "puerta": <n> en details) intrusion (critical) ·
+ *              arranque_puerta_abierta (high) · puerta_abierta (warning) · puerta_cerrada (info) ·
+ *              limite_pulsos (warning).
  *
- *  La cerradura es una DFRobot FIT0620: el fabricante pide no energizarla más de 5 s seguidos.
- *  Tope de 5 s por pulso y 20 s energizada en cualquier minuto (cerradura_pulso.h); el corte lo
- *  hace un esp_timer aparte (salida_cerradura.c) y la tarea está suscrita al watchdog.
+ *   REPORTE    config.abiertas = [0,1,0,0], de solo lectura.
  *
- *  Todas las placas de lockers llevan ESTE MISMO binario: no hay MAC, código ni aula en el
+ *  Las cerraduras son DFRobot FIT0620: el fabricante pide no energizarlas más de 5 s seguidos.
+ *  Tope de 5 s por pulso y 20 s energizada en cualquier minuto, por cerradura
+ *  (cerradura_pulso.h); el corte lo hace un esp_timer por locker (salida_cerradura.c) y la tarea
+ *  está suscrita al watchdog.
+ *
+ *  Todas las placas de gabinete llevan ESTE MISMO binario: no hay MAC, código ni aula en el
  *  código. MESH_ID_BYTES y MESH_AP_PASS van en main/config_local.h (no se sube).
  * ============================================================================================
  */
@@ -87,7 +92,7 @@
 #define NVS_ESPACIO         "locker"
 #define NVS_CLAVE_CONFIG    "config"
 
-static const char *TAG = "LOCKER";
+static const char *TAG = "GABINETE";
 
 typedef struct {
     int32_t intervalo_s;
@@ -97,8 +102,8 @@ typedef struct {
 
 static config_locker_t cfg = {INTERVALO_DEFECTO_S, PULSO_DEFECTO_MS, AVISO_DEFECTO_S};
 static SemaphoreHandle_t lock_cfg;           /* cfg: la cambia set_config (tarea de nodo_mesh) */
-static SemaphoreHandle_t lock_locker;        /* locker: lo usan la tarea del locker y "abrir" */
-static locker_t locker;
+static SemaphoreHandle_t lock_locker;        /* gabinete: lo usan su tarea, "abrir" y el reporte */
+static gabinete_t gabinete;
 static volatile bool medir_ya = false;
 
 static inline int64_t ahora_ms(void) { return esp_timer_get_time() / 1000; }
@@ -203,13 +208,15 @@ static bool aplicar_config(const cJSON *params, char *motivo, size_t tam)
 static void describir_config(cJSON *config)
 {
     config_locker_t k = cfg_leer();
+    int abiertas[CANT_LOCKERS];
     xSemaphoreTake(lock_locker, portMAX_DELAY);
-    bool abierta = locker.abierta;
+    for (int i = 0; i < CANT_LOCKERS; i++) abiertas[i] = gabinete.l[i].abierta ? 1 : 0;
     xSemaphoreGive(lock_locker);
     cJSON_AddNumberToObject(config, "intervalo_s", k.intervalo_s);
     cJSON_AddNumberToObject(config, "pulso_ms", k.pulso_ms);
     cJSON_AddNumberToObject(config, "aviso_s", k.aviso_s);
-    cJSON_AddNumberToObject(config, "abierta", abierta ? 1 : 0);     /* de solo lectura (§3.2) */
+    /* de solo lectura (§3.2): [0,1,0,0] */
+    cJSON_AddItemToObject(config, "abiertas", cJSON_CreateIntArray(abiertas, CANT_LOCKERS));
 }
 
 /* ============================== Comandos ============================== */
@@ -229,6 +236,12 @@ static bool ejecutar_comando(const char *comando, const cJSON *params, bool loca
     }
     if (strcmp(comando, "abrir") == 0) {
 #if CONFIG_LOCKER_ABRIR_REMOTO
+        const cJSON *pu = cJSON_GetObjectItemCaseSensitive(params, "puerta");
+        int puerta;
+        if (!puerta_valida(cJSON_IsNumber(pu), cJSON_IsNumber(pu) ? pu->valuedouble : 0, &puerta)) {
+            snprintf(motivo, tam, "puerta_invalida");
+            return false;
+        }
         const cJSON *v = cJSON_GetObjectItemCaseSensitive(params, "vence");
         bool tiene = cJSON_IsNumber(v);
         orden_estado_t o = orden_vigente(tiene, tiene ? (int64_t)v->valuedouble : 0, (int64_t)time(NULL));
@@ -237,14 +250,15 @@ static bool ejecutar_comando(const char *comando, const cJSON *params, bool loca
             return false;
         }
         xSemaphoreTake(lock_locker, portMAX_DELAY);
-        abrir_resultado_t r = locker_abrir(&locker, ahora_ms());
+        abrir_resultado_t r = gabinete_abrir(&gabinete, ahora_ms(), puerta);
         xSemaphoreGive(lock_locker);
         if (r != ABRIR_OK) {
-            /* pulso en curso (no se extiende) o límite por minuto (sale además limite_pulsos) */
+            /* un pulso en curso en el gabinete (no se extiende ni se superpone) o el límite por
+               minuto de esa cerradura (sale además limite_pulsos) */
             snprintf(motivo, tam, "ocupada");
             return false;
         }
-        ESP_LOGI(TAG, "Orden de abrir aceptada");
+        ESP_LOGI(TAG, "Orden de abrir el locker %d aceptada", puerta);
         return true;
 #else
         (void)params;
@@ -257,16 +271,34 @@ static bool ejecutar_comando(const char *comando, const cJSON *params, bool loca
 }
 
 /* ============================== Mediciones y acciones ============================== */
-static void medir(bool abierta)
+static void medir(const bool abiertas[CANT_LOCKERS])
 {
     cJSON *v = cJSON_CreateObject();
     if (v == NULL) return;
-    cJSON_AddNumberToObject(v, "puerta", abierta ? 1 : 0);
-    cJSON_AddNumberToObject(v, "cerradura", salida_cerradura_energizada() ? 1 : 0);
+    char campo[16];
+    for (int i = 0; i < CANT_LOCKERS; i++) {
+        snprintf(campo, sizeof(campo), "puerta_%d", i + 1);
+        cJSON_AddNumberToObject(v, campo, abiertas[i] ? 1 : 0);
+    }
+    for (int i = 0; i < CANT_LOCKERS; i++) {
+        snprintf(campo, sizeof(campo), "cerradura_%d", i + 1);
+        cJSON_AddNumberToObject(v, campo, salida_cerradura_energizada(i) ? 1 : 0);
+    }
     if (!nodo_mesh_medicion(v)) {
         ESP_LOGW(TAG, "La medición no entró en la cola");
     }
     cJSON_Delete(v);
+}
+
+static void alerta(const accion_t *a)
+{
+    char texto[64];
+    snprintf(texto, sizeof(texto), "%s (locker %d)", a->mensaje, a->puerta);
+    cJSON *d = cJSON_CreateObject();
+    if (d != NULL) cJSON_AddNumberToObject(d, "puerta", a->puerta);
+    ESP_LOGW(TAG, "ALERTA %s (%s): %s", a->alerta, severidad_texto(a->severidad), texto);
+    nodo_mesh_alerta(a->alerta, severidad_texto(a->severidad), texto, d);
+    cJSON_Delete(d);
 }
 
 /* Ejecuta, en el orden en que la lógica las dejó, las acciones pendientes. Una intrusion se
@@ -276,21 +308,20 @@ static void ejecutar_acciones(void)
     accion_t a;
     for (;;) {
         xSemaphoreTake(lock_locker, portMAX_DELAY);
-        bool hay = locker_sacar(&locker, &a);
+        bool hay = gabinete_sacar(&gabinete, &a);
         xSemaphoreGive(lock_locker);
         if (!hay) return;
         switch (a.tipo) {
         case ACC_PULSO:
-            salida_cerradura_energizar((uint32_t)a.valor);
-            ESP_LOGI(TAG, "Cerradura energizada %d ms", (int)a.valor);
+            salida_cerradura_energizar(a.puerta - 1, (uint32_t)a.valor);
+            ESP_LOGI(TAG, "Cerradura %d energizada %d ms", a.puerta, (int)a.valor);
             break;
         case ACC_CORTAR:
-            salida_cerradura_soltar();
-            ESP_LOGI(TAG, "Cerradura trabada");
+            salida_cerradura_soltar(a.puerta - 1);
+            ESP_LOGI(TAG, "Cerradura %d trabada", a.puerta);
             break;
         case ACC_ALERTA:
-            ESP_LOGW(TAG, "ALERTA %s (%s): %s", a.alerta, severidad_texto(a.severidad), a.mensaje);
-            nodo_mesh_alerta(a.alerta, severidad_texto(a.severidad), a.mensaje, NULL);
+            alerta(&a);
             break;
         case ACC_MEDIR:
             medir_ya = true;
@@ -299,41 +330,36 @@ static void ejecutar_acciones(void)
     }
 }
 
-static bool leer_abierta(void)
+static bool leer_abierta(int i)
 {
-    return gpio_get_level(PIN_MICROSWITCH) == 1;         /* switch libre o cable cortado */
+    return gpio_get_level(PIN_MICROSWITCH[i]) == 1;      /* switch libre o cable cortado */
 }
 
-/* ============================== Tarea del locker ============================== */
+/* ============================== Tarea del gabinete ============================== */
+static antirrebote_t sensor[CANT_LOCKERS];
+
 static void tarea_locker(void *arg)
 {
     (void)arg;
     esp_task_wdt_add(NULL);
-    vTaskDelay(pdMS_TO_TICKS(100));                      /* que la pull-up se estabilice */
-
-    config_locker_t k = cfg_leer();
-    antirrebote_t sensor;
-    antirrebote_iniciar(&sensor, leer_abierta(), ahora_ms());
-    xSemaphoreTake(lock_locker, portMAX_DELAY);
-    locker_iniciar(&locker, ahora_ms(), sensor.estable, k.pulso_ms, k.aviso_s, CORTAR_AL_ABRIR);
-    xSemaphoreGive(lock_locker);
-    medir(sensor.estable);
-    int64_t ultima = ahora_ms();
+    bool abiertas[CANT_LOCKERS];
+    int64_t ultima = INT64_MIN / 2;                      /* la primera medición sale enseguida */
 
     for (;;) {
         esp_task_wdt_reset();
-        vTaskDelay(pdMS_TO_TICKS(PERIODO_LOGICA_MS));
         int64_t ahora = ahora_ms();
-        k = cfg_leer();
+        config_locker_t k = cfg_leer();
 
         xSemaphoreTake(lock_locker, portMAX_DELAY);
-        locker.pulso_ms = k.pulso_ms;
-        locker.aviso_s = k.aviso_s;
-        if (antirrebote_paso(&sensor, leer_abierta(), ahora)) {
-            locker_sensor(&locker, ahora, sensor.estable);
+        gabinete.pulso_ms = k.pulso_ms;
+        gabinete.aviso_s = k.aviso_s;
+        for (int i = 0; i < CANT_LOCKERS; i++) {
+            if (antirrebote_paso(&sensor[i], leer_abierta(i), ahora)) {
+                gabinete_sensor(&gabinete, i, ahora, sensor[i].estable);
+            }
         }
-        locker_tick(&locker, ahora);
-        bool abierta = locker.abierta;
+        gabinete_tick(&gabinete, ahora);
+        for (int i = 0; i < CANT_LOCKERS; i++) abiertas[i] = gabinete.l[i].abierta;
         xSemaphoreGive(lock_locker);
 
         ejecutar_acciones();
@@ -341,8 +367,9 @@ static void tarea_locker(void *arg)
         if (medir_ya || (ahora - ultima) >= (int64_t)k.intervalo_s * 1000) {
             medir_ya = false;
             ultima = ahora;
-            medir(abierta);
+            medir(abiertas);
         }
+        vTaskDelay(pdMS_TO_TICKS(PERIODO_LOGICA_MS));
     }
 }
 
@@ -373,12 +400,14 @@ static void tarea_led(void *arg)
 /* ============================== Arranque ============================== */
 void app_main(void)
 {
-    /* 1. Primero la cerradura: el pin en 0 antes que cualquier otra cosa */
+    /* 1. Primero las cerraduras: los cuatro pines en 0 antes que cualquier otra cosa */
     salida_cerradura_reposo_inicial();
     salida_cerradura_iniciar();
 
+    uint64_t mascara = 0;
+    for (int i = 0; i < CANT_LOCKERS; i++) mascara |= 1ULL << PIN_MICROSWITCH[i];
     gpio_config_t sw = {
-        .pin_bit_mask = 1ULL << PIN_MICROSWITCH,
+        .pin_bit_mask = mascara,
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
     };
@@ -387,7 +416,7 @@ void app_main(void)
     gpio_set_direction(PIN_LED, GPIO_MODE_OUTPUT);
     led(false);
 
-    /* 2. NVS (la usan nodo_mesh y la configuración del locker) */
+    /* 2. NVS (la usan nodo_mesh y la configuración del gabinete) */
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -400,13 +429,25 @@ void app_main(void)
     lock_locker = xSemaphoreCreateMutex();
     configASSERT(lock_cfg && lock_locker);
 
-    ESP_LOGI(TAG, "Locker del pañol: pulso %d ms (tope %d), aviso %d s, intervalo %d s",
-             (int)cfg.pulso_ms, PULSO_TOPE_MS, (int)cfg.aviso_s, (int)cfg.intervalo_s);
+    /* 3. La lógica ANTES que la malla: un abrir que llegue enseguida ya encuentra pulso_ms y el
+       estado de cada locker. Los que arrancan abiertos dejan arranque_puerta_abierta en la cola,
+       que sale cuando arranca la tarea. */
+    vTaskDelay(pdMS_TO_TICKS(100));                      /* que las pull-up se estabilicen */
+    bool abiertas[CANT_LOCKERS];
+    int64_t ahora = ahora_ms();
+    for (int i = 0; i < CANT_LOCKERS; i++) {
+        abiertas[i] = leer_abierta(i);
+        antirrebote_iniciar(&sensor[i], abiertas[i], ahora);
+    }
+    gabinete_iniciar(&gabinete, ahora, abiertas, cfg.pulso_ms, cfg.aviso_s, CORTAR_AL_ABRIR);
+
+    ESP_LOGI(TAG, "Gabinete de %d lockers: pulso %d ms (tope %d), aviso %d s, intervalo %d s",
+             CANT_LOCKERS, (int)cfg.pulso_ms, PULSO_TOPE_MS, (int)cfg.aviso_s, (int)cfg.intervalo_s);
     ESP_LOGI(TAG, "Apertura remota %s, cortar al abrir %s",
              ABRIR_REMOTO ? "HABILITADA (solo banco)" : "deshabilitada",
              CORTAR_AL_ABRIR ? "sí" : "no");
 
-    /* 3. La malla (antes de la tarea del locker, que ya le manda mediciones) */
+    /* 4. La malla */
     nodo_mesh_config_t mcfg = {
         .mesh_id = {MESH_ID_BYTES},
         .mesh_clave = MESH_AP_PASS,
@@ -418,7 +459,7 @@ void app_main(void)
     };
     ESP_ERROR_CHECK(nodo_mesh_iniciar(&mcfg));
 
-    /* 4. El locker y el LED */
-    xTaskCreate(tarea_locker, "locker", 4096, NULL, 5, NULL);
+    /* 5. El gabinete y el LED */
+    xTaskCreate(tarea_locker, "gabinete", 4096, NULL, 5, NULL);
     xTaskCreate(tarea_led, "led", 2048, NULL, 2, NULL);
 }

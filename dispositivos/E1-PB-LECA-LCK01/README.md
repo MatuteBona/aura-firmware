@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Ubicación** | Edificio 1, planta baja, LabECA — gabinete de lockers del pañol |
-| **Responsable** | Grupo de lockers del pañol, IC III 2026: MatuteBona |
+| **Responsable** | Grupo de lockers del pañol, IC III 2026: MatuteBona, agusferrero05, bertolaco |
 | **Estado** | en desarrollo |
 | **Instalado** | todavía no |
 | **Transporte** | mesh ESP-WIFI-MESH (interior), en ESP-IDF 6.1, según [ADR-007](../../docs/adr/ADR-007-mesh-en-esp-idf-con-concentrador-por-aula.md); actualización por la malla según ADR-008 |

@@ -3,7 +3,7 @@
 nombre  = "E1-PB-LECA-LCK01"
 version = "0.1.0"
 sdk     = ">=1.2,<2"
-autores = ["MatuteBona"]
+autores = ["MatuteBona", "agusferrero05", "bertolaco"]
 clase   = "conector:ConectorLockers"
 
 # Un bloque por cada campo que manda el firmware en "values" (dispositivos/E1-PB-LECA-LCK01,

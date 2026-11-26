@@ -1,6 +1,6 @@
 # Prueba en placa: E1-PB-LECA-LCK01 en el banco de la mesh (2026-11-06)
 
-Grupo de lockers del pañol, IC III 2026 (@MatuteBona).
+Grupo de lockers del pañol, IC III 2026 (@MatuteBona, @agusferrero05, @bertolaco).
 
 Primera vez que la hoja del gabinete de lockers entró a la malla de AURA: el banco de la
 materia en el LabECA (gateway y concentrador de la cátedra, `broker.py` en una notebook del

@@ -7,7 +7,7 @@
 | **Estado** | en desarrollo |
 | **Instalado** | todavía no |
 | **Transporte** | mesh ESP-WIFI-MESH (interior), en ESP-IDF 6.1, según [ADR-007](../../docs/adr/ADR-007-mesh-en-esp-idf-con-concentrador-por-aula.md); actualización por la malla según ADR-008 |
-| **Contrato que implementa** | [`CONTRATO_MQTT.md`](../../docs/CONTRATO_MQTT.md) v4.6 (propuesta en este mismo PR): `abrir`, `estado` y las alertas de la puerta de la v4.5, con varias puertas en un dispositivo (§3.1, §3.2, §3.3 y §3.5) |
+| **Contrato que implementa** | [`CONTRATO_MQTT.md`](../../docs/CONTRATO_MQTT.md) v4.7 (propuesta en este mismo PR): `abrir`, `estado` y las alertas de la puerta de la v4.5, con varias puertas en un dispositivo (§3.1, §3.2, §3.3 y §3.5) |
 | **Decisiones** | [ADR-009](../../docs/adr/ADR-009-puertas-con-llavero-la-puerta-decide-y-aura-supervisa.md): cada locker es una puerta con cerradura por pulso y sensor de apertura |
 | **Basado en** | [`Mesh_Red_Completa/Mesh3_Hoja`](../../Mesh_Red_Completa/Mesh3_Hoja/), sobre la biblioteca `nodo_mesh`. El pulso (`cerradura_pulso.h`), la salida con corte por temporizador y la validación de `set_config` vienen del modelo [`_modelos/PUE-RFID`](../_modelos/PUE-RFID/) |
 | **Firmware** | tipo `aura-lockers`, versión `1.2.0` |
@@ -98,7 +98,7 @@ Con pulsos de 3 s que se cortan al abrir, la espera para abrir otro locker es co
 
 ## Lo que envía a AURA
 
-Cada medición es un `values` (contrato §3.1, varias puertas en la v4.6). Sale una **en cada
+Cada medición es un `values` (contrato §3.1, varias puertas en la v4.7). Sale una **en cada
 cambio** de una puerta o una cerradura, y una completa cada `intervalo_s`:
 
 ```json
@@ -140,7 +140,7 @@ que vale la alerta que el contrato tiene para una puerta que arranca armada y ab
 ## Comandos
 
 Los de la puerta del contrato v4.5 (§3.3, "Comandos de la puerta con llavero"), con `puerta` para
-un dispositivo de varias puertas (v4.6). Los de llaveros (`tarjeta_*`) no aplican: los lockers no
+un dispositivo de varias puertas (v4.7). Los de llaveros (`tarjeta_*`) no aplican: los lockers no
 tienen lector.
 
 | Comando | `params` | Qué hace | Rechazos (`details.motivo`) |

@@ -6,7 +6,7 @@
  *
  *  Cada locker es una puerta con cerradura por pulso y sensor de apertura (ADR-009). Sobre la
  *  biblioteca nodo_mesh, que resuelve la malla, el aula, la cola con confirmación, la hora, la
- *  OTA y la firma. Lo propio del gabinete (contrato v4.6, propuesto en este mismo PR):
+ *  OTA y la firma. Lo propio del gabinete (contrato v4.7, propuesto en este mismo PR):
  *
  *   QUÉ MIDE   en cada cambio, y una completa cada intervalo_s:
  *                {"puerta_1":0,…,"puerta_4":0,"cerradura_1":0,…,"cerradura_4":0}
@@ -182,7 +182,7 @@ static bool aplicar_config(const cJSON *params, char *motivo, size_t tam)
             }
             nueva.pulso_ms = v;
         } else if (strcmp(p->string, "aviso_s") == 0) {
-            if (!leer_param(p, 0, AVISO_MAX_S, &v) || !aviso_valido(v)) {
+            if (!cJSON_IsNumber(p) || !entero_en_rango_o_cero(p->valuedouble, AVISO_MIN_S, AVISO_MAX_S, &v)) {
                 snprintf(motivo, tam, "aviso_s_fuera_de_rango");
                 return false;
             }

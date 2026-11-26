@@ -7,7 +7,7 @@
 > (`docs/superpowers/…`) son de `aura-app`.
 
 **Estado**: normativo en `aura-app`. Ante una discrepancia con cualquier otro documento, manda el contrato; ante una discrepancia entre esta copia y la de `aura-app`, manda la de `aura-app`.
-**Versión del contrato**: 4.6 (propuesta) · **Última actualización**: 2026-11-26
+**Versión del contrato**: 4.7 (propuesta) · **Última actualización**: 2026-11-26
 **Alcance**: mensajería entre los dispositivos IoT y la plataforma (backend FastAPI). Hay **dos
 transportes**, cada uno con su adaptador
 ([ADR-003](adr/ADR-003-dos-transportes-mesh-interior-lorawan-exterior.md)):
@@ -144,20 +144,25 @@ hw/<hw_id>/alerts/<tipo>   ← adaptador publica   → backend consume
 QoS 1 en todos. **Formato del `hw_id`**, siempre en minúsculas:
 
 ```
-^(mac-[0-9a-f]{12}|eui-[0-9a-f]{16}|svc-[a-z0-9-]{1,32})$
+^(mac-[0-9a-f]{12}|eui-[0-9a-f]{16}|gw-[0-9a-f]{16}|svc-[a-z0-9-]{1,32})$
 ```
 
 | Prefijo | Qué identifica | Ejemplo |
 |---|---|---|
 | `mac-` | una placa de la mesh, por su MAC de fábrica (interfaz STA) | `mac-e072a1f7efe4` |
 | `eui-` | un nodo LoRaWAN, por su DevEUI | `eui-798a381dd8c1cba4` |
+| `gw-` | un gateway LoRaWAN, por su id en ChirpStack (v4.6) | `gw-24e124fffefafc09` |
 | `svc-` | un adaptador que no es una placa | `svc-lorawan-bridge` |
+
+`gw-` y `eui-` tienen el mismo formato (16 hex) y por eso van separados: con un solo prefijo, ni
+AURA ni el bridge sabrían si un `eui-…` es un nodo, que recibe comandos, o el gateway, que no.
 
 `<tipo>` de las alertas: `[a-z_]{1,24}`.
 
 "Adaptador" es el `lorawan-bridge` o el raíz de la mesh, según por dónde llegue la placa. Cada
 `hw_id` pertenece a **un solo** adaptador: el raíz solo consume `hw/mac-…/{ack,command}` y el
-bridge solo `hw/eui-…/command`. Lo demás lo ignoran sin mandar nada a la radio.
+bridge solo `hw/eui-…/command`. Lo demás lo ignoran sin mandar nada a la radio. El dueño de
+`gw-` es el bridge, que solo publica su `status` (§3.2); nadie consume `hw/gw-…/command` (§3.3).
 
 **El backend recibe lo que él mismo publica** (`ack`, `command`) si se suscribe con un comodín
 que lo incluya (`hw/#`). Tiene que ignorarlo sin `warning`: si no, cada `ack` propio aparece en el
@@ -308,7 +313,7 @@ la cola de la hoja (§5) y llenaría la base con filas que nadie consulta.
 campo: `{"temp_heladera_c": 4.5, "temp_freezer_c": -18.0}`. Si las sondas tienen intervalos
 distintos, cada mensaje lleva solo las que se midieron: `values` no tiene que traer todas.
 
-**Varias puertas en un dispositivo (v4.6).** Un dispositivo que maneja varias puertas con una sola
+**Varias puertas en un dispositivo (v4.7).** Un dispositivo que maneja varias puertas con una sola
 placa (el gabinete de lockers `E1-PB-LECA-LCK01`: cuatro lockers, cada uno con su cerradura por
 pulso y su sensor de apertura) manda, en cada cambio y cada `intervalo_s`, el estado de cada una
 con el número de puerta en el nombre del campo, de 1 a N: `puerta_<n>` (1 = abierta, 0 = cerrada)
@@ -384,7 +389,7 @@ reporte dentro de `config`. Un dispositivo que necesita informar su estado actua
 para guardar) lo pone ahí, como campo **de solo lectura**: aparece en `config` pero no se cambia
 con `set_config`. AURA guarda `config` como la configuración vigente del dispositivo y la pisa con
 cada reporte, así que no queda historial. Lo usa la puerta (§3.3): `armada`, `abierta`, `tarjetas` y
-`hash`. Un dispositivo de varias puertas (v4.6) informa `abiertas`, una lista con una posición
+`hash`. Un dispositivo de varias puertas (v4.7) informa `abiertas`, una lista con una posición
 por puerta (`[0,1,0,0]`: la puerta 2 abierta), en lugar de `abierta`. Si el reporte no entra en
 los 180 B de la trama, la biblioteca de la mesh saca primero `descartadas`, `rssi`, `capa`,
 `alimentacion`, `modo` y `pendientes`, nunca `firmware` ni `config`.
@@ -432,9 +437,58 @@ AURA significan lo mismo: la placa no está.
 `retain: true` es deliberado: un backend que arranca después recibe el último estado conocido
 de cada placa de inmediato, sin esperar el próximo uplink, que en LoRaWAN pueden ser minutos.
 
+**El gateway LoRaWAN (v4.6).** Si el gateway se cae, ningún nodo LoRaWAN llega, pero cada uno
+recién sale `offline` a los 3 intervalos, y nada dice que la causa es una sola (el 2026-11-18 el
+gateway estuvo 85 minutos caído sin que nadie se enterara). El gateway no tiene LWT en el broker de
+AURA: el `lorawan-bridge` le pregunta a ChirpStack la lista de gateways del tenant de la aplicación
+(`GatewayService.List`), en la misma revisión de `CS_REVISION_OFFLINE_S` del `offline` inferido y
+también al arrancar, y publica **en cada revisión** `hw/gw-<id>/status` (QoS 1, retain), con el
+estado que calcula ChirpStack a partir de los reportes del gateway (el Milesight UG63 los manda
+cada 30 s). Publicar en cada revisión, y no solo al cambiar, hace que AURA tenga el estado aunque el
+gateway se dé de alta después. `NEVER_SEEN` no se publica. Sin `CS_API_TOKEN`, tampoco.
+
+```json
+{ "status": "offline",
+  "details": { "rol": "gateway", "transporte": "lorawan", "nombre": "ug63-unraf",
+               "ultimo_reporte": "2026-11-18T19:21:04+00:00", "motivo": "sin_reportes" } }
+```
+
+| Campo de `details` | Notas |
+|---|---|
+| `rol`, `transporte` | `"gateway"`, `"lorawan"` |
+| `nombre` | el nombre del gateway en ChirpStack |
+| `ultimo_reporte` | ISO 8601 con zona: el último reporte que recibió ChirpStack (`last_seen_at`); `null` si no hay |
+| `motivo` | solo en el `offline`: `"sin_reportes"` (no `sin_tramas`: el gateway no manda tramas de datos) |
+
+Implementación: `VigiaGateways` en `servicios/lorawan_bridge/lorawan_bridge/offline.py`.
+
+**Qué hace AURA con el gateway y el bridge (v4.6).** Los dos se dan de alta como dispositivos,
+con `hw_id` `gw-<id>` y `svc-lorawan-bridge`, y su `status` actualiza `connection_status` y
+`last_seen` como el de cualquier placa. Si `details.ultimo_reporte` es una fecha válida, es el
+`last_seen` (aunque el estado sea `offline`): así `last_seen` dice desde cuándo no se sabe del
+gateway, no cuándo llegó el mensaje. Ninguno de los dos manda muestras, así que el semáforo del
+tablero, la lista y la ficha los juzgan por `connection_status` y no por la última muestra
+(`solo_status` en `app/backend/tablero/semaforo.py`). El tablero (`GET /api/v1/tablero`) trae
+`avisos`, que la web muestra como una franja arriba del Dashboard:
+
+| `tipo` | Cuándo | Qué significa |
+|---|---|---|
+| `gateway_sin_reportes` | un dispositivo `gw-` está `offline` con `last_seen` | no está llegando ningún nodo LoRaWAN; `desde` es su último reporte |
+| `bridge_caido` | `svc-lorawan-bridge` está `offline` (su LWT) | tampoco llega ningún nodo, y el estado retenido del gateway ya no vale: se reemplaza a `gateway_sin_reportes` y la tarjeta del gateway pasa a gris |
+
+Un `offline` sin `last_seen` es el valor inicial de un dispositivo recién dado de alta: cuenta como
+"nunca reportó", no como caída. Avisos por mail o push, y un historial de caídas, son temas de IC4;
+el log de la API guarda cada `status`.
+
 ### 3.3 `hw/<hw_id>/command` — comando hacia la placa
 
 **Emisor**: backend · **Consumidor**: el adaptador de la placa · **QoS 1**
+
+**Gateways y adaptadores no reciben comandos (v4.6).** Nadie consume `hw/gw-…/command` ni
+`hw/svc-…/command`: el comando quedaría pendiente para siempre, sin ningún `response`. Por eso el
+backend no los publica: `POST /api/v1/devices/{id}/comandos` responde **409** "Este dispositivo no
+recibe comandos" si el `hw_id` empieza con `gw-` o `svc-` (`recibe_comandos` en
+`app/backend/ingesta/hw.py`), y la ficha no ofrece el panel de comandos.
 
 ```json
 { "command": "led", "params": { "encendido": true }, "command_id": "c-2026-0001" }
@@ -571,9 +625,9 @@ futuro, y la puerta lo rechaza si no tiene hora válida.
 | `abrir_deshabilitado` | `abrir` con el firmware compilado sin apertura remota |
 | `sin_vencimiento`, `sin_hora_valida`, `orden_vencida`, `vencimiento_muy_lejano`, `ocupada` | `abrir` habilitado, pero la orden no vale o ya hay un pulso en curso |
 | `pulso_ms_fuera_de_rango`, `aviso_s_fuera_de_rango`, `parametro_desconocido`, `params_invalido` | `set_config` que no valida: no se aplica nada |
-| `puerta_invalida` | `abrir` en un dispositivo de varias puertas (v4.6) sin `puerta`, o con una que no existe |
+| `puerta_invalida` | `abrir` en un dispositivo de varias puertas (v4.7) sin `puerta`, o con una que no existe |
 
-**Dispositivo de varias puertas (mesh, v4.6).** En un dispositivo que maneja varias puertas con
+**Dispositivo de varias puertas (mesh, v4.7).** En un dispositivo que maneja varias puertas con
 una placa (§3.1), `abrir` lleva además el número de puerta, **obligatorio**:
 `{"puerta": <1 a N>, "vence": <segundos Unix>}`. Si falta, no es un entero o esa puerta no existe,
 se rechaza con `puerta_invalida`. En una puerta sola no se manda. Las mismas reglas de `abrir`
@@ -727,7 +781,7 @@ Tipos especificados. El tipo va en el tópico (`[a-z_]{1,24}`; el raíz no publi
 | `limite_pulsos` | `warning` | se llegó al límite de tiempo energizada por minuto de la cerradura |
 | `memoria_borrada` | `high` | arrancó con la memoria borrada: lista vacía, desarmada y sin aula. AURA recarga la lista |
 
-En un dispositivo de varias puertas (v4.6) cada alerta de la puerta lleva el número en
+En un dispositivo de varias puertas (v4.7) cada alerta de la puerta lleva el número en
 `details.puerta` (de 1 a N): `{"tipo": "intrusion", "severity": "critical", "message": "…",
 "details": {"puerta": 2}}`. Un locker está siempre armado: una puerta que arranca abierta da
 `arranque_puerta_abierta` (`high`), y una que se abre sin pulso, `intrusion`.
@@ -806,7 +860,7 @@ loop):
 |---|---|---|
 | `despachar` | `hw/<hw_id>/…` | parsea el tópico y el `hw_id`; ignora sin `warning` lo que publica el propio backend (`ack`, `command`); ante un error de base hace rollback y **no** publica `ack` |
 | `procesar_data` | `hw/<hw_id>/data` | busca `devices.hw_id`; guarda con dispositivo, en cuarentena o descarta (ignorada); deduplica por `ingest_id`; publica el `ack` después del commit |
-| `procesar_status` | `hw/<hw_id>/status` | actualiza `connection_status` y `last_seen` del dispositivo; `details` va al log |
+| `procesar_status` | `hw/<hw_id>/status` | actualiza `connection_status` y `last_seen` del dispositivo (con `details.ultimo_reporte`, si viene: v4.6); `details` va al log |
 | `procesar_response` | `hw/<hw_id>/response` | actualiza el comando en la tabla `comandos` (§3.4) |
 | `procesar_alerta` | `hw/<hw_id>/alerts/<tipo>` | guarda la alerta en la tabla `alertas` (§3.5) |
 
@@ -983,7 +1037,8 @@ MAC del medidor. Mientras no se decida, sus mensajes se descartan:
 
 | Versión | Fecha | Cambio |
 |---|---|---|
-| 4.6 | 2026-11-26 | **Propuesta. Dispositivos de varias puertas** (el gabinete de lockers `E1-PB-LECA-LCK01`, `aura-firmware` #94). Compatible: solo agrega. Nuevos: `puerta_<n>` y `cerradura_<n>` en `values` (§3.1); `abiertas` (lista) en el `config` del reporte en lugar de `abierta` (§3.2); `abrir` con `puerta` obligatorio, el motivo `puerta_invalida` y una sola cerradura energizada a la vez (§3.3); `details.puerta` en las alertas de la puerta (§3.5). Una puerta sola no cambia. |
+| 4.7 | 2026-11-26 | **Propuesta. Dispositivos de varias puertas** (el gabinete de lockers `E1-PB-LECA-LCK01`, `aura-firmware` #94). Compatible: solo agrega. Nuevos: `puerta_<n>` y `cerradura_<n>` en `values` (§3.1); `abiertas` (lista) en el `config` del reporte en lugar de `abierta` (§3.2); `abrir` con `puerta` obligatorio, el motivo `puerta_invalida` y una sola cerradura energizada a la vez (§3.3); `details.puerta` en las alertas de la puerta (§3.5). Una puerta sola no cambia. |
+| 4.6 | 2026-11-18 | **Propuesta. Aviso de gateway caído.** Compatible: solo agrega. Nuevos: el prefijo **`gw-`** para gateways LoRaWAN (§2.1), su `status` publicado por el `lorawan-bridge` en cada revisión con el estado de ChirpStack (`details.ultimo_reporte`, `motivo: "sin_reportes"`), qué hace AURA con el `status` del gateway y del bridge (`last_seen` desde `ultimo_reporte`, semáforo por `connection_status`, `avisos` del tablero) (§3.2), y el rechazo con 409 de los comandos a `gw-` y `svc-` (§3.3). Un backend anterior descarta `hw/gw-…` como tópico no reconocido. |
 | 4.5 | 2026-11-13 (ajustada el 2026-11-19) | **Propuesta. Puertas con llavero** ([ADR-009](adr/ADR-009-puertas-con-llavero-la-puerta-decide-y-aura-supervisa.md), `aura-firmware` #40 y #42). Compatible: solo agrega. Nuevos: **registros de evento** en `values` (§3.1), estado de solo lectura en `config` (§3.2), comandos **`tarjeta_agregar`**, **`tarjeta_quitar`**, **`tarjetas_vaciar`**, **`estado`** y **`abrir`** con sus motivos, formato del `hash` de la lista (§3.3) y las alertas de la puerta (§3.5). Regla: no se manda `ota` a una puerta armada. Pendiente 24. |
 | 4.4 | 2026-10-30 | **Propuesta. Seguridad de la actualización por la malla** (revisión de seguridad de la red, etapa 1). **Incompatible solo para quien use `forzar_tipo`**, que se elimina (`forzar_tipo_deshabilitado`). Nuevo comando **`autorizar_concentrador`** y `details.concentrador_autorizado` (§3.2, §3.3): el `rol` que declara una placa es solo un dato y AURA nunca autoriza por él; hasta que AURA autoriza un concentrador, el raíz no acepta los datos de sus hojas. `params.url` pasa a ser `https://`. Las imágenes van **firmadas por la cátedra** y la placa rechaza una sin firma (`imagen_invalida`). Pendiente 23 resuelto en parte (firma sin Secure Boot). |
 | 4.3 | 2026-10-22 | **Propuesta. Actualización por la malla** ([ADR-008](adr/ADR-008-actualizacion-por-la-malla-y-tipo-de-firmware.md), `aura-firmware` #24). Compatible: nada cambia de forma. Nuevos: el comando **`ota`** para cualquier placa de la mesh, incluido el raíz, que solo acepta ese comando para sí mismo (§3.3), con sus motivos de `rechazado` y el significado de cada estado (§3.4); **`details.firmware`** (`tipo` y `versión`) en el `status` de hojas, concentradores y raíz, y `details.ota` en el del raíz mientras actualiza (§3.2). Regla del tipo de firmware: `aura-<uso>`, uno por uso. Pendientes 22 y 23. |

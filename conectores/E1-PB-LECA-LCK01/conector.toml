@@ -7,7 +7,7 @@ autores = ["MatuteBona", "agusferrero05", "bertolaco"]
 clase   = "conector:ConectorGabinete"
 
 # Un bloque por cada uno de los ocho campos que manda el firmware en "values"
-# (dispositivos/E1-PB-LECA-LCK01, "Lo que envía a AURA"; contrato v4.6, propuesto en este PR).
+# (dispositivos/E1-PB-LECA-LCK01, "Lo que envía a AURA"; contrato v4.7, propuesto en este PR).
 # Son estados: 1 o 0. Lo que no esté acá, o esté fuera de rango, AURA no lo guarda.
 
 [campos.puerta_1]

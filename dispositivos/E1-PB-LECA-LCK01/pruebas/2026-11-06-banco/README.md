@@ -11,7 +11,7 @@ La hoja corrió la **primera versión** de este firmware (`aura-lockers` 1.0.1, 
 solo locker), firmada con la clave de prueba del grupo, sobre una ESP32-C3 SuperMini conectada al
 hardware del locker 1 (cerradura de 12 V con IRLZ44N y microswitch, ver la ficha). Esa versión
 mandaba `{"puerta_1":…,"solenoide_1":…}` y aceptaba un `abrir` con `puerta` y `ms`; la 1.2.0 los
-reemplazó por lo que define el contrato (v4.5, y la v4.6 propuesta en este PR para varias puertas).
+reemplazó por lo que define el contrato (v4.5, y la v4.7 propuesta en este PR para varias puertas).
 **Por eso la prueba 1 se repite con la 1.2.0** (ver [Lo que falta](#lo-que-falta)).
 
 ## El banco

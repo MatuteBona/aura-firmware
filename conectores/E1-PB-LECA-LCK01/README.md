@@ -5,7 +5,7 @@ hoja de la mesh): una placa, 4 lockers. Para cada locker, el estado de la puerta
 
 ## Campos
 
-Tienen que coincidir con lo que manda el firmware (`values`, contrato v4.6, propuesto en el PR del
+Tienen que coincidir con lo que manda el firmware (`values`, contrato v4.7, propuesto en el PR del
 dispositivo). Son estados: solo se guardan 0 y 1.
 
 | Campos | Unidad | Rango | |
